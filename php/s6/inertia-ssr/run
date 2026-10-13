@@ -1,0 +1,28 @@
+#!/command/with-contenv sh
+# Inertia SSR renderer, supervised by s6 next to nginx and php-fpm. Listens on the
+# Inertia default 127.0.0.1:13714. If it is down, Inertia falls back to client-side
+# rendering, so a missing bundle must not crash-loop the container.
+#
+# INERTIA_SSR_ENABLED=false  turns it off.
+# INERTIA_SSR_ENTRY=<path>   overrides the bundle (relative to /var/www/html).
+# No s6-setuidgid: serversideup already runs services as www-data (rootless).
+cd /var/www/html
+
+if [ "${INERTIA_SSR_ENABLED:-true}" = "false" ]; then
+    echo "inertia-ssr: disabled (INERTIA_SSR_ENABLED=false)"
+    exec sleep infinity
+fi
+
+entry="${INERTIA_SSR_ENTRY:-}"
+if [ -z "$entry" ]; then
+    for f in bootstrap/ssr/ssr.mjs bootstrap/ssr/ssr.js bootstrap/ssr/app.mjs bootstrap/ssr/app.js; do
+        [ -f "$f" ] && entry="$f" && break
+    done
+fi
+
+if [ -z "$entry" ] || [ ! -f "$entry" ]; then
+    echo "inertia-ssr: no SSR bundle found (set INERTIA_SSR_ENTRY); client-side rendering only"
+    exec sleep infinity
+fi
+
+exec node "$entry"

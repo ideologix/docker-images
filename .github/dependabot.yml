@@ -1,0 +1,12 @@
+version: 2
+updates:
+  # serversideup/php and node are pinned by digest in php/Dockerfile; Dependabot
+  # opens a PR when either moves, and the build workflow smoke-tests it.
+  - package-ecosystem: docker
+    directory: /php
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
