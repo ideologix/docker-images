@@ -72,10 +72,12 @@ is registered through `/etc/s6-overlay/user-bundles.d`, which is how v5 wants it
 ## How updates work
 
 - serversideup and Node are pinned by digest, so nothing changes under us unannounced.
-  Dependabot opens a PR when a new version lands.
+  New PHP releases and security patches arrive when Dependabot opens a PR that bumps the
+  serversideup digest; merging it publishes fresh dated tags.
 - Every PR is built and smoke-tested (`php/smoke-test.sh`): extensions are present, nginx
   actually starts, the SSR service serves a bundle, and WP-CLI works.
-- A weekly rebuild picks up PHP and OS security patches and publishes a fresh dated tag.
+- A weekly rebuild refreshes what we install on top (Debian packages like the MariaDB
+  client) and publishes a fresh dated tag.
 
 Want to try a change locally?
 
