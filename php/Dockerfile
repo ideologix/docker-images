@@ -10,7 +10,7 @@
 # (v5.0.0 broke s6 user bundles on 2026-10-08). Dependabot opens a PR when it moves.
 # Already in the base: pcntl pdo_mysql pdo_pgsql pdo_sqlite redis zip curl mbstring xml opcache.
 
-FROM ghcr.io/serversideup/php:8.5-fpm-nginx@sha256:668e92e71131cb1583e54f8262b342726ecbdf370f229a852720d4fff824145d AS base
+FROM ghcr.io/serversideup/php:8.5-fpm-nginx@sha256:cc307f78ea042d4252e84d8c10e5f11fa0931ea99369b680d6d12d0d800254e7 AS base
 USER root
 RUN install-php-extensions exif gd imagick intl
 USER www-data
