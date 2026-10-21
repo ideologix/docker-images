@@ -79,6 +79,29 @@ is registered through `/etc/s6-overlay/user-bundles.d`, which is how v5 wants it
 - A weekly rebuild refreshes what we install on top (Debian packages like the MariaDB
   client) and publishes a fresh dated tag.
 
+## Emergency PHP patches
+
+serversideup rebuilds its images only weekly (Tuesdays 08:00 UTC) and on its own
+releases, not when PHP ships a security fix. The last three PHP security releases reached
+its images 5, 5 and 14 days late. For a critical fix we don't wait:
+
+1. Wait until the official `php:<version>-fpm-trixie` image is on Docker Hub (usually a
+   few hours after php.net).
+2. Run the **Emergency PHP patch** workflow (Actions, Run workflow) with the new
+   `php_version`. It builds serversideup from its own source (`serversideup_ref`, the
+   release our pinned digest comes from) on that official image, with the nginx version
+   serversideup's config names, then builds our targets on top, checks the PHP version
+   and runs the smoke test.
+3. It publishes tags with the PHP version in them, e.g. `8.5-laravel-20261021-php8.5.12`.
+   Bump your app to that tag. The moving tags are not touched.
+4. When serversideup publishes the patch, merge the Dependabot digest bump and go back to
+   the normal dated tags. Until then, don't move an app from an emergency tag to a newer
+   plain dated tag: the weekly rebuild still uses the pinned serversideup, so it carries
+   the older PHP.
+
+Under the hood `php/Dockerfile` takes `SERVERSIDEUP_SOURCE=emergency` and a build
+context named `serversideup-emergency`; the default build is unchanged.
+
 Want to try a change locally?
 
 ```sh

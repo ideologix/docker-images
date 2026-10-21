@@ -9,8 +9,21 @@
 # serversideup is pinned by digest so a new major can never land unannounced
 # (v5.0.0 broke s6 user bundles on 2026-10-08). Dependabot opens a PR when it moves.
 # Already in the base: pcntl pdo_mysql pdo_pgsql pdo_sqlite redis zip curl mbstring xml opcache.
+#
+# SERVERSIDEUP_SOURCE picks where serversideup comes from:
+#   registry   (default) the pinned image below; the normal path.
+#   emergency  serversideup built from source on a newer official PHP image by
+#              .github/workflows/emergency-php.yml, passed in as the build
+#              context "serversideup-emergency". Only that workflow uses it.
+# BuildKit only resolves the stage it needs, so the default build never looks
+# for the emergency context.
+ARG SERVERSIDEUP_SOURCE=registry
 
-FROM ghcr.io/serversideup/php:8.5-fpm-nginx@sha256:668e92e71131cb1583e54f8262b342726ecbdf370f229a852720d4fff824145d AS base
+FROM ghcr.io/serversideup/php:8.5-fpm-nginx@sha256:668e92e71131cb1583e54f8262b342726ecbdf370f229a852720d4fff824145d AS source-registry
+
+FROM serversideup-emergency AS source-emergency
+
+FROM source-${SERVERSIDEUP_SOURCE} AS base
 USER root
 RUN install-php-extensions exif gd imagick intl
 USER www-data

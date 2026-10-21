@@ -1,0 +1,165 @@
+name: Emergency PHP patch
+
+# For a critical PHP security release when serversideup has not published
+# images with it yet. serversideup rebuilds only weekly (Tuesdays 08:00 UTC)
+# and on its own releases; past PHP security fixes reached its images 5 to 14
+# days late. This builds serversideup from its own source on the official
+# php:<version>-fpm-<os> image, puts our targets on top, smoke-tests them and
+# publishes tags that carry the PHP version:
+#   ghcr.io/ideologix/php:8.5-laravel-<yyyymmdd>-php8.5.12
+# The moving tags (8.5-laravel) are left alone. Once serversideup publishes the
+# patch, merge the Dependabot digest bump and go back to the normal dated tags.
+
+on:
+  workflow_dispatch:
+    inputs:
+      php_version:
+        description: "PHP patch version, e.g. 8.5.12 (the official php:<version>-fpm-<os> image must exist)"
+        required: true
+      serversideup_ref:
+        description: "serversideup/docker-php git ref to build (tag or commit)"
+        required: true
+        default: v5.0.1
+      os:
+        description: "Debian release of the official PHP image (ours is trixie)"
+        required: true
+        default: trixie
+      publish:
+        description: "Push the tags to GHCR (off = build and test only)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: emergency-php
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/ideologix/php
+  STAGING: ghcr.io/ideologix/php-serversideup-staging
+
+jobs:
+  serversideup:
+    runs-on: ubuntu-latest
+    outputs:
+      staging: ${{ steps.meta.outputs.staging }}
+    steps:
+      - name: Check the inputs
+        run: |
+          [[ "${{ inputs.php_version }}" =~ ^8\.5\.[0-9]+$ ]] || { echo "php_version must look like 8.5.12" >&2; exit 1; }
+
+      - name: Check the official PHP image exists
+        run: |
+          ref="php:${{ inputs.php_version }}-fpm-${{ inputs.os }}"
+          if ! docker manifest inspect "$ref" >/dev/null 2>&1; then
+            echo "$ref is not on Docker Hub yet. Official images usually follow php.net within a few hours; retry later." >&2
+            exit 1
+          fi
+          echo "Found $ref" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Check out serversideup/docker-php
+        uses: actions/checkout@v4
+        with:
+          repository: serversideup/docker-php
+          ref: ${{ inputs.serversideup_ref }}
+          path: ssu
+
+      # Same nginx version serversideup's own build uses for this OS.
+      - name: Read the nginx version
+        id: nginx
+        run: |
+          v=$(awk -v key="${{ inputs.os }}" '$1=="version:" && $2==key {f=1} f && $1=="nginx_version:" {print $2; exit}' ssu/scripts/conf/php-versions-base-config.yml)
+          [ -n "$v" ] || { echo "No nginx version for ${{ inputs.os }} in serversideup's config" >&2; exit 1; }
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Image name
+        id: meta
+        run: echo "staging=${STAGING}:${{ inputs.php_version }}-fpm-nginx-${{ inputs.os }}-${{ github.run_id }}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Pushed to a staging package even when publish is off: the next job
+      # builds our targets from it as a named build context.
+      - name: Build serversideup fpm-nginx from source
+        uses: docker/build-push-action@v6
+        with:
+          context: ssu
+          file: ssu/src/variations/fpm-nginx/Dockerfile
+          build-args: |
+            BASE_OS_VERSION=${{ inputs.os }}
+            PHP_VERSION=${{ inputs.php_version }}
+            PHP_VARIATION=fpm-nginx
+            REPOSITORY_BUILD_VERSION=${{ inputs.serversideup_ref }}-ideologix-emergency
+            NGINX_VERSION=${{ steps.nginx.outputs.version }}
+          pull: true
+          push: true
+          tags: ${{ steps.meta.outputs.staging }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.description=serversideup/php ${{ inputs.serversideup_ref }} fpm-nginx built from source on php:${{ inputs.php_version }}-fpm-${{ inputs.os }} (emergency path)
+
+      - name: Check the PHP version
+        run: |
+          got=$(docker run --rm --pull always --entrypoint php "${{ steps.meta.outputs.staging }}" -r 'echo PHP_VERSION;')
+          [ "$got" = "${{ inputs.php_version }}" ] || { echo "Built PHP $got, expected ${{ inputs.php_version }}" >&2; exit 1; }
+          echo "serversideup from source: PHP $got, nginx ${{ steps.nginx.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+
+  php:
+    needs: serversideup
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [laravel, laravel-ssr, wordpress]
+    env:
+      TAG: 8.5-${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: php
+          target: ${{ matrix.target }}
+          load: true
+          tags: local/php:${{ env.TAG }}
+          build-args: SERVERSIDEUP_SOURCE=emergency
+          build-contexts: serversideup-emergency=docker-image://${{ needs.serversideup.outputs.staging }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.title=php:${{ env.TAG }}
+            org.opencontainers.image.description=PHP ${{ inputs.php_version }} base (${{ matrix.target }}) on serversideup/php ${{ inputs.serversideup_ref }} built from source (emergency path)
+
+      - name: Check the PHP version
+        run: |
+          got=$(docker run --rm --entrypoint php "local/php:$TAG" -r 'echo PHP_VERSION;')
+          [ "$got" = "${{ inputs.php_version }}" ] || { echo "Built PHP $got, expected ${{ inputs.php_version }}" >&2; exit 1; }
+
+      - name: Smoke test
+        run: bash php/smoke-test.sh "local/php:$TAG" ${{ matrix.target }}
+
+      - name: Push
+        if: inputs.publish
+        run: |
+          tag="${TAG}-$(date -u +%Y%m%d)-php${{ inputs.php_version }}"
+          docker tag "local/php:$TAG" "$IMAGE:$tag"
+          docker push "$IMAGE:$tag"
+          echo "Pushed $IMAGE:$tag" >> "$GITHUB_STEP_SUMMARY"
