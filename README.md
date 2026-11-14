@@ -12,7 +12,9 @@ extensions and tools added that most of our apps need anyway.
 ## What's in the box
 
 All images are **PHP 8.5** on serversideup v5 (`fpm-nginx`, Debian trixie): nginx and
-php-fpm supervised by s6, listening on port **8080**.
+php-fpm supervised by s6, listening on port **8080**. Every tag is multi-arch
+(`linux/amd64` and `linux/arm64`), so the same tag runs natively on Apple Silicon Macs
+and ARM servers.
 
 | Image | Good for | Extras on top of serversideup |
 |---|---|---|
@@ -74,8 +76,9 @@ is registered through `/etc/s6-overlay/user-bundles.d`, which is how v5 wants it
 - serversideup and Node are pinned by digest, so nothing changes under us unannounced.
   New PHP releases and security patches arrive when Dependabot opens a PR that bumps the
   serversideup digest; merging it publishes fresh dated tags.
-- Every PR is built and smoke-tested (`php/smoke-test.sh`): extensions are present, nginx
-  actually starts, the SSR service serves a bundle, and WP-CLI works.
+- Every PR is built and smoke-tested (`php/smoke-test.sh`) on both architectures, each on
+  a native runner: extensions are present, nginx actually starts, the SSR service serves a
+  bundle, and WP-CLI works.
 - A weekly rebuild refreshes what we install on top (Debian packages like the MariaDB
   client) and publishes a fresh dated tag.
 
